@@ -13,7 +13,7 @@ data class SeatResponse(
 
 fun Seat.toResponse(): SeatResponse {
 
-    val effectiveStatus = if (status == Status.HELD && holdExpiresAt != null && Instant.now().isAfter(holdExpiresAt)) {
+    val effectiveStatus = if (status == Status.HELD && isHoldExpired()) {
         Status.AVAILABLE
     } else {
         status

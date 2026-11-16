@@ -9,4 +9,6 @@ data class Seat(
     var status: Status,
     var heldByUserId: String? = null,
     var holdExpiresAt: Instant? = null
-)
+){
+    fun isHoldExpired() = holdExpiresAt != null && Instant.now().isAfter(holdExpiresAt)
+}

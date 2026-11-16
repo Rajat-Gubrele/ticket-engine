@@ -5,6 +5,7 @@ import com.example.ticketengine.dto.toResponse
 import com.example.ticketengine.exception.SeatNotAvailableException
 import com.example.ticketengine.exception.SeatNotFoundException
 import com.example.ticketengine.exception.ShowNotFoundException
+import com.example.ticketengine.exception.UnauthorizedHoldException
 import com.example.ticketengine.model.Seat
 import com.example.ticketengine.model.Status
 import org.springframework.stereotype.Service
@@ -41,26 +42,54 @@ class SeatService {
     }
 
     fun getSeats(showId: String): List<SeatResponse> {
-        return showSeats[showId]?.map { it.toResponse() } ?: emptyList()
+        return showSeats[showId]?.map { it.toResponse() } ?: throw ShowNotFoundException("Show not found")
     }
 
-    fun holdSeat(userId: String, showId: String, seatId: String): SeatResponse = synchronized(seatId) {
+    fun holdSeat(userId: String, showId: String, seatId: String): SeatResponse {
+
+        val requestedSeat = getRequestedSeat(showId = showId, seatId = seatId)
+
+        synchronized(requestedSeat) {
+            if (requestedSeat.status == Status.AVAILABLE || (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired())
+            ) {
+                requestedSeat.heldByUserId = userId
+                requestedSeat.status = Status.HELD
+                requestedSeat.holdExpiresAt = Instant.now().plusSeconds(300L)
+
+                return requestedSeat.toResponse()
+            } else {
+                throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
+            }
+        }
+    }
+
+    fun confirmSeat(userId: String, showId: String, seatId: String): SeatResponse {
+        val requestedSeat = getRequestedSeat(showId = showId, seatId = seatId)
+        synchronized(requestedSeat) {
+            if (requestedSeat.status != Status.HELD || requestedSeat.isHoldExpired()) {
+                if (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired()) {
+                    requestedSeat.status = Status.AVAILABLE
+                    requestedSeat.holdExpiresAt = null
+                    requestedSeat.heldByUserId = null
+                }
+                throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
+            }
+            if (requestedSeat.heldByUserId != userId) {
+                throw UnauthorizedHoldException("Seat ${requestedSeat.seatId} is unauthorized")
+            }
+            requestedSeat.status = Status.OCCUPIED
+            requestedSeat.heldByUserId = null
+            requestedSeat.holdExpiresAt = null
+
+            return requestedSeat.toResponse()
+        }
+    }
+
+    private fun getRequestedSeat(showId: String, seatId: String): Seat {
         if (!showSeats.containsKey(showId)) {
             throw ShowNotFoundException("Show with id $showId not found")
         }
-        val requestedSeat =
-            showSeats[showId]?.filter { it.seatId == seatId }?.getOrNull(0) ?: throw SeatNotFoundException("Seat with id $seatId not found")
-
-        if (requestedSeat.status == Status.AVAILABLE || (requestedSeat.status == Status.HELD && Instant.now()
-                .isAfter(requestedSeat.holdExpiresAt))
-        ) {
-            requestedSeat.heldByUserId = userId
-            requestedSeat.status = Status.HELD
-            requestedSeat.holdExpiresAt = Instant.now().plusSeconds(300L)
-
-            return requestedSeat.toResponse()
-        } else {
-            throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
-        }
+        return showSeats[showId]?.find { it.seatId == seatId }
+            ?: throw SeatNotFoundException("Seat with id $seatId not found")
     }
 }

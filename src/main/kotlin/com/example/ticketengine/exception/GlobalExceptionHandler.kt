@@ -33,6 +33,11 @@ class GlobalExceptionHandler {
         return buildErrorResponse(HttpStatus.BAD_REQUEST, validationMessage)
     }
 
+    @ExceptionHandler(UnauthorizedHoldException::class)
+    fun handleUnAuthorizedHoldException(e: UnauthorizedHoldException): ResponseEntity<ErrorResponse> {
+        return buildErrorResponse(HttpStatus.FORBIDDEN, e.message ?: "Unauthorized")
+    }
+
     private fun buildErrorResponse(status: HttpStatus, message: String): ResponseEntity<ErrorResponse> {
         val body = ErrorResponse(
             status = status.value(),
