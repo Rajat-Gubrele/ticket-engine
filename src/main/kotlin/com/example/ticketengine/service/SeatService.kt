@@ -8,88 +8,69 @@ import com.example.ticketengine.exception.ShowNotFoundException
 import com.example.ticketengine.exception.UnauthorizedHoldException
 import com.example.ticketengine.model.Seat
 import com.example.ticketengine.model.Status
+import com.example.ticketengine.repository.SeatRepository
+import com.example.ticketengine.repository.ShowRepository
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 @Service
-class SeatService {
-    private val showSeats = ConcurrentHashMap<String, List<Seat>>()
+class SeatService(
+    private val seatRepository: SeatRepository,
+    private val showRepository: ShowRepository,
+) {
 
-    init {
-        showSeats["show-1"] = listOf(
-            Seat(seatId = "A1", row = "A", seatNumber = 1, status = Status.AVAILABLE),
-            Seat(
-                seatId = "A2",
-                row = "A",
-                seatNumber = 2,
-                status = Status.HELD,
-                heldByUserId = "123",
-                holdExpiresAt = Instant.now()
-            ),
-            Seat(seatId = "A3", row = "A", seatNumber = 3, status = Status.OCCUPIED),
-            Seat(seatId = "B1", row = "B", seatNumber = 1, status = Status.OCCUPIED),
-            Seat(seatId = "B2", row = "B", seatNumber = 2, status = Status.AVAILABLE),
-            Seat(
-                seatId = "B3",
-                row = "B",
-                seatNumber = 3,
-                status = Status.HELD,
-                heldByUserId = "124",
-                holdExpiresAt = Instant.now().plusSeconds(300L)
-            ),
-        )
-    }
-
+    @Transactional(readOnly = true)
     fun getSeats(showId: String): List<SeatResponse> {
-        return showSeats[showId]?.map { it.toResponse() } ?: throw ShowNotFoundException("Show not found")
+        if (!showRepository.existsById(showId)) throw ShowNotFoundException("Show not found")
+        return seatRepository.findByShowId(showId).map { it.toResponse() }
     }
 
+    @Transactional
     fun holdSeat(userId: String, showId: String, seatId: String): SeatResponse {
 
         val requestedSeat = getRequestedSeat(showId = showId, seatId = seatId)
 
-        synchronized(requestedSeat) {
-            if (requestedSeat.status == Status.AVAILABLE || (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired())
-            ) {
-                requestedSeat.heldByUserId = userId
-                requestedSeat.status = Status.HELD
-                requestedSeat.holdExpiresAt = Instant.now().plusSeconds(300L)
-
-                return requestedSeat.toResponse()
-            } else {
-                throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
-            }
-        }
-    }
-
-    fun confirmSeat(userId: String, showId: String, seatId: String): SeatResponse {
-        val requestedSeat = getRequestedSeat(showId = showId, seatId = seatId)
-        synchronized(requestedSeat) {
-            if (requestedSeat.status != Status.HELD || requestedSeat.isHoldExpired()) {
-                if (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired()) {
-                    requestedSeat.status = Status.AVAILABLE
-                    requestedSeat.holdExpiresAt = null
-                    requestedSeat.heldByUserId = null
-                }
-                throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
-            }
-            if (requestedSeat.heldByUserId != userId) {
-                throw UnauthorizedHoldException("Seat ${requestedSeat.seatId} is unauthorized")
-            }
-            requestedSeat.status = Status.OCCUPIED
-            requestedSeat.heldByUserId = null
-            requestedSeat.holdExpiresAt = null
+        if (requestedSeat.status == Status.AVAILABLE || (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired())
+        ) {
+            requestedSeat.heldByUserId = userId
+            requestedSeat.status = Status.HELD
+            requestedSeat.holdExpiresAt = Instant.now().plusSeconds(300L)
 
             return requestedSeat.toResponse()
+        } else {
+            throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
         }
+    }
+    @Transactional
+    fun confirmSeat(userId: String, showId: String, seatId: String): SeatResponse {
+
+        val requestedSeat = getRequestedSeat(showId = showId, seatId = seatId)
+
+        if (requestedSeat.status != Status.HELD || requestedSeat.isHoldExpired()) {
+            if (requestedSeat.status == Status.HELD && requestedSeat.isHoldExpired()) {
+                requestedSeat.status = Status.AVAILABLE
+                requestedSeat.holdExpiresAt = null
+                requestedSeat.heldByUserId = null
+            }
+            throw SeatNotAvailableException("Seat ${requestedSeat.seatId} is not available")
+        }
+        if (requestedSeat.heldByUserId != userId) {
+            throw UnauthorizedHoldException("Seat ${requestedSeat.seatId} is unauthorized")
+        }
+        requestedSeat.status = Status.OCCUPIED
+        requestedSeat.heldByUserId = null
+        requestedSeat.holdExpiresAt = null
+
+        return requestedSeat.toResponse()
     }
 
     private fun getRequestedSeat(showId: String, seatId: String): Seat {
-        if (!showSeats.containsKey(showId)) {
-            throw ShowNotFoundException("Show with id $showId not found")
-        }
-        return showSeats[showId]?.find { it.seatId == seatId }
+
+        if (!showRepository.existsById(showId)) throw ShowNotFoundException("Show not found")
+
+        return seatRepository.findWithLockByShowIdAndSeatId(showId, seatId)
             ?: throw SeatNotFoundException("Seat with id $seatId not found")
     }
 }

@@ -2,7 +2,6 @@ package com.example.ticketengine.dto
 
 import com.example.ticketengine.model.Seat
 import com.example.ticketengine.model.Status
-import java.time.Instant
 
 data class SeatResponse(
     val seatId: String,
