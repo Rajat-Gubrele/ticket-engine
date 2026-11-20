@@ -1,0 +1,1 @@
+ALTER TABLE seats ADD COLUMN "hold_token" VARCHAR(36);

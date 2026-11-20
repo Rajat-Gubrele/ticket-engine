@@ -37,6 +37,10 @@ class GlobalExceptionHandler {
     fun handleUnAuthorizedHoldException(e: UnauthorizedHoldException): ResponseEntity<ErrorResponse> {
         return buildErrorResponse(HttpStatus.FORBIDDEN, e.message ?: "Unauthorized")
     }
+    @ExceptionHandler(InvalidIdempotencyKeyException::class)
+    fun handleUnAuthorizedHoldException(e: InvalidIdempotencyKeyException): ResponseEntity<ErrorResponse> {
+        return buildErrorResponse(HttpStatus.BAD_REQUEST, e.message ?: "Invalid Request")
+    }
 
     private fun buildErrorResponse(status: HttpStatus, message: String): ResponseEntity<ErrorResponse> {
         val body = ErrorResponse(

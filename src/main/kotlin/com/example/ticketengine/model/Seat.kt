@@ -25,6 +25,7 @@ class Seat(
     @Enumerated(EnumType.STRING) @Column(name="status", nullable = false) var status: Status,
     @Column(name="heldByUserId") var heldByUserId: String? = null,
     @Column(name="holdExpiresAt") var holdExpiresAt: Instant? = null,
+    @Column(name = "hold_token") var holdToken: String? = null,
 ){
     fun isHoldExpired() = holdExpiresAt != null && Instant.now().isAfter(holdExpiresAt)
 }

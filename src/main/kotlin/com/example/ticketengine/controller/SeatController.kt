@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RestController
 
@@ -32,6 +33,7 @@ class SeatController(private val seatService: SeatService) {
     @PostMapping("/{show_id}/confirm")
     fun confirmSeat(
         @PathVariable("show_id") showId: String,
+        @RequestHeader(value = "Idempotency-Key", required = false) idempotencyKey: String?,
         @Valid @RequestBody request: ConfirmSeatRequest
-    ): SeatResponse = seatService.confirmSeat(userId = request.userId, showId = showId, seatId = request.seatId)
+    ): SeatResponse = seatService.confirmSeat(userId = request.userId, showId = showId, seatId = request.seatId, holdToken = request.holdToken, idempotencyKey = idempotencyKey)
 }

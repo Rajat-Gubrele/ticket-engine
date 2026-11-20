@@ -23,7 +23,8 @@ interface SeatRepository: JpaRepository<Seat, Long> {
         UPDATE Seat s
         set s.status = :availableStatus,
         s.heldByUserId = null,
-        s.holdExpiresAt = null 
+        s.holdExpiresAt = null,
+        s.holdToken = null
         where s.status = :heldStatus AND s.holdExpiresAt < :now
     """)
     fun releaseExpiredHolds(now: Instant, availableStatus: Status = Status.AVAILABLE, heldStatus: Status = Status.HELD): Int
