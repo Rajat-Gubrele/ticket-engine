@@ -13,9 +13,11 @@ import com.example.ticketengine.model.Status
 import com.example.ticketengine.repository.IdempotencyRecordRepository
 import com.example.ticketengine.repository.SeatRepository
 import com.example.ticketengine.repository.ShowRepository
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import tools.jackson.core.type.TypeReference
 import tools.jackson.databind.ObjectMapper
 import java.time.Instant
 import java.util.UUID
@@ -26,13 +28,25 @@ class SeatService(
     private val seatRepository: SeatRepository,
     private val showRepository: ShowRepository,
     private val idempotencyRecordRepository: IdempotencyRecordRepository,
+    private val redisTemplate: StringRedisTemplate,
     private val objectMapper: ObjectMapper,
 ) {
 
+    private fun getCacheKey(showId: String) = "shows:$showId:seats"
+
     @Transactional(readOnly = true)
     fun getSeats(showId: String): List<SeatResponse> {
+        val cachedJson = redisTemplate.opsForValue().get(getCacheKey(showId))
+        if (cachedJson != null) {
+            return objectMapper.readValue(cachedJson, object : TypeReference<List<SeatResponse>>() {})
+        }
         if (!showRepository.existsById(showId)) throw ShowNotFoundException("Show not found")
-        return seatRepository.findByShowId(showId).map { it.toResponse() }
+        val seats = seatRepository.findByShowId(showId).map { it.toResponse() }
+
+        val json = objectMapper.writeValueAsString(seats)
+        redisTemplate.opsForValue().set(getCacheKey(showId), json, java.time.Duration.ofSeconds(60))
+
+        return seats
     }
 
     @Transactional
@@ -48,6 +62,8 @@ class SeatService(
             requestedSeat.status = Status.HELD
             requestedSeat.holdExpiresAt = Instant.now().plusSeconds(300L)
             requestedSeat.holdToken = holdToken
+
+            redisTemplate.delete(getCacheKey(showId))
 
             return requestedSeat.toResponse(holdToken = holdToken)
         } else {
@@ -69,7 +85,7 @@ class SeatService(
             if (record != null) {
                 if (record.userId == userId && record.showId == showId && record.seatId == seatId) {
                     return objectMapper.readValue(record.responseBody, SeatResponse::class.java)
-                }else {
+                } else {
                     throw InvalidIdempotencyKeyException("Idempotency key already used with different parameters")
                 }
             }
@@ -94,7 +110,7 @@ class SeatService(
 
         val response = requestedSeat.toResponse()
 
-        if(idempotencyKey != null) {
+        if (idempotencyKey != null) {
             idempotencyRecordRepository.save(
                 IdempotencyRecord(
                     key = idempotencyKey,
@@ -106,6 +122,7 @@ class SeatService(
                 )
             )
         }
+        redisTemplate.delete(getCacheKey(showId))
 
         return response
     }

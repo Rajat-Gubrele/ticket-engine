@@ -16,5 +16,12 @@ services:
       timeout: 5s
       retries: 5
 
+  ticket-engine-redis:
+    image: redis:7-alpine
+    container_name: ticket-engine-redis
+    ports:
+      - "6379:6379"
+    restart: always
+
 volumes:
   postgres_data:

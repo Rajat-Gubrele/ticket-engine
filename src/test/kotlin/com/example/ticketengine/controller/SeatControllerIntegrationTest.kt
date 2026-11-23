@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc
+import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get
@@ -25,8 +26,14 @@ class SeatControllerIntegrationTest {
     @Autowired
     private lateinit var seatRepository: SeatRepository
 
+    @Autowired
+    private lateinit var redisTemplate: StringRedisTemplate
+
     @BeforeEach
     fun setup() {
+
+        redisTemplate.delete("shows:show-1:seats")
+
         // Reset B2 to AVAILABLE
         val seatB2 = seatRepository.findByShowIdAndSeatId("show-1", "B2")
         if (seatB2 != null) {
@@ -267,5 +274,30 @@ class SeatControllerIntegrationTest {
             .andExpect(status().isBadRequest)
             .andExpect(jsonPath("$.status").value(400))
             .andExpect(jsonPath("$.message").value("Idempotency key already used with different parameters"))
+    }
+
+    @Test
+    fun `GET seats caches result in Redis and evicts on seat hold`() {
+        val cacheKey = "shows:show-1:seats"
+
+        // 1. Initially, cache is empty
+        org.junit.jupiter.api.Assertions.assertFalse(redisTemplate.hasKey(cacheKey))
+
+        // 2. Act: First GET triggers a Cache Miss and populates Redis
+        mockMvc.perform(get("/api/v1/shows/show-1/seats"))
+            .andExpect(status().isOk)
+
+        // Assert: Redis now has the key cached
+        org.junit.jupiter.api.Assertions.assertTrue(redisTemplate.hasKey(cacheKey))
+
+        // 3. Act: Hold a seat (Write operation triggers Cache Eviction)
+        mockMvc.perform(
+            post("/api/v1/shows/show-1/hold")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"userId": "cache-tester", "seatId": "B2"}""")
+        ).andExpect(status().isCreated)
+
+        // Assert: Cache key was evicted from Redis
+        org.junit.jupiter.api.Assertions.assertFalse(redisTemplate.hasKey(cacheKey))
     }
 }
